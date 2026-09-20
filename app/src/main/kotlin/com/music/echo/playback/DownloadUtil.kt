@@ -292,7 +292,7 @@ constructor(
         .replace(Regex("\\\\s+"), " ")
         .trim()
         .ifBlank { songId }
-      val fileName = "\\$safeTitle.opus"
+      val fileName = "$safeTitle.opus"
 
       if (tree.findFile(fileName) != null) return
 
