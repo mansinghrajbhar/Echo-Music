@@ -27,6 +27,7 @@ import echo.music.iad1tya.di.ApplicationScope
 import echo.music.iad1tya.extensions.toEnum
 import echo.music.iad1tya.extensions.toInetSocketAddress
 import echo.music.iad1tya.utils.AppContextHolder
+import echo.music.iad1tya.utils.PermanentDownloadRegistry
 import echo.music.iad1tya.utils.CrashHandler
 import echo.music.iad1tya.utils.dataStore
 import echo.music.iad1tya.utils.reportException
@@ -94,6 +95,20 @@ class App : Application(), SingletonImageLoader.Factory {
     CrashHandler.install(this)
 
     AppContextHolder.initialize(this)
+
+    // Restore permanent download locations before any player/library work starts.
+    applicationScope.launch(Dispatchers.IO) {
+      runCatching {
+        dataStore.data.first()[PermanentDownloadUrisKey].orEmpty().forEach { entry ->
+          val separator = entry.indexOf('=')
+          if (separator > 0 && separator < entry.lastIndex) {
+            val songId = entry.substring(0, separator)
+            val uri = entry.substring(separator + 1)
+            PermanentDownloadRegistry.register(songId, uri)
+          }
+        }
+      }.onFailure { Timber.e(it, "Failed to restore permanent download locations") }
+    }
     echo.music.iad1tya.utils.cipher.CipherDeobfuscator.initialize(this)
     echo.music.iad1tya.utils.YTPlayerUtils.initialize()
 
