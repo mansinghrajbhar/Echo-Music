@@ -5,9 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Uri
 import androidx.core.content.getSystemService
 import androidx.core.net.toUri
-import androidx.documentfile.provider.DocumentFile
 import androidx.media3.database.DatabaseProvider
-import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.SimpleCache
@@ -24,7 +22,6 @@ import com.music.innertube.models.IpVersion
 import dagger.hilt.android.qualifiers.ApplicationContext
 import echo.music.iad1tya.constants.AudioQuality
 import echo.music.iad1tya.constants.DownloadOnWifiOnlyKey
-import echo.music.iad1tya.constants.ExportDirectoryUriKey
 import echo.music.iad1tya.constants.IpVersionKey
 import echo.music.iad1tya.db.MusicDatabase
 import echo.music.iad1tya.db.entities.FormatEntity
@@ -48,7 +45,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -238,7 +234,6 @@ constructor(
                 when (download.state) {
                   Download.STATE_COMPLETED -> {
                     database.updateDownloadedInfo(download.request.id, true, LocalDateTime.now())
-                    exportCompletedDownload(download.request.id)
                   }
                   Download.STATE_FAILED,
                   Download.STATE_STOPPED,
@@ -273,55 +268,6 @@ constructor(
           downloadManager.requirements =
             Requirements(if (wifiOnly) Requirements.NETWORK_UNMETERED else Requirements.NETWORK)
         }
-    }
-  }
-
-  private suspend fun exportCompletedDownload(songId: String) {
-    val targetUri = context.dataStore.data.first()[ExportDirectoryUriKey]?.takeIf { it.isNotBlank() }
-      ?: return
-
-    runCatching {
-      val tree = DocumentFile.fromTreeUri(context, Uri.parse(targetUri))
-        ?: error("Offline music folder is unavailable")
-
-      val songTitle = database.query { getSongByIdBlocking(songId)?.song?.title }
-        .orEmpty()
-        .ifBlank { songId }
-      val safeTitle = songTitle
-        .replace(Regex("[\\\\/:*?\\\"<>|]"), "_")
-        .replace(Regex("\\\\s+"), " ")
-        .trim()
-        .ifBlank { songId }
-      val fileName = "$safeTitle.opus"
-
-      if (tree.findFile(fileName) != null) return
-
-      val dataSource = CacheDataSource.Factory()
-        .setCache(downloadCache)
-        .createDataSource()
-      val dataSpec = DataSpec.Builder()
-        .setUri(Uri.parse("https://offline.local/$songId"))
-        .setKey(songId)
-        .build()
-
-      dataSource.open(dataSpec)
-      try {
-        val output = tree.createFile("audio/opus", fileName)
-          ?: error("Unable to create offline music file")
-        context.contentResolver.openOutputStream(output.uri, "w")!!.use { stream ->
-          val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-          while (true) {
-            val read = dataSource.read(buffer, 0, buffer.size)
-            if (read == -1) break
-            stream.write(buffer, 0, read)
-          }
-          stream.flush()
-        }
-      } finally {
-        dataSource.close()
-      }
-    }.onFailure { error ->
-      timber.log.Timber.e(error, "Failed to copy completed download to the offline music folder")
     }
   }
 
