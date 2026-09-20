@@ -265,6 +265,14 @@ constructor(
     }
     downloads.value = result
 
+    // If downloads finished before the user selected an export folder, retry the
+    // permanent export on the next app start once a folder is already configured.
+    scope.launch {
+      result.values
+        .filter { it.state == Download.STATE_COMPLETED }
+        .forEach { exportCompletedDownload(it) }
+    }
+
     // Wi-Fi-only downloads: DownloadManager pauses queued downloads whenever the
     // active requirements aren't met, so flipping this pref mid-download stops it
     // on mobile data without losing progress.
