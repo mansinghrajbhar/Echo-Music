@@ -6,6 +6,9 @@ import android.net.Uri
 import androidx.core.content.getSystemService
 import androidx.core.net.toUri
 import androidx.media3.database.DatabaseProvider
+import androidx.documentfile.provider.DocumentFile
+import androidx.media3.datasource.ByteArrayDataSource
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.SimpleCache
@@ -22,6 +25,7 @@ import com.music.innertube.models.IpVersion
 import dagger.hilt.android.qualifiers.ApplicationContext
 import echo.music.iad1tya.constants.AudioQuality
 import echo.music.iad1tya.constants.DownloadOnWifiOnlyKey
+import echo.music.iad1tya.constants.ExportDirectoryUriKey
 import echo.music.iad1tya.constants.IpVersionKey
 import echo.music.iad1tya.db.MusicDatabase
 import echo.music.iad1tya.db.entities.FormatEntity
@@ -50,6 +54,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.Dns
@@ -234,6 +239,7 @@ constructor(
                 when (download.state) {
                   Download.STATE_COMPLETED -> {
                     database.updateDownloadedInfo(download.request.id, true, LocalDateTime.now())
+                    exportCompletedDownload(download)
                   }
                   Download.STATE_FAILED,
                   Download.STATE_STOPPED,
@@ -269,6 +275,70 @@ constructor(
             Requirements(if (wifiOnly) Requirements.NETWORK_UNMETERED else Requirements.NETWORK)
         }
     }
+  }
+
+  private suspend fun exportCompletedDownload(download: Download) {
+    val targetUriString = context.dataStore.data.first()[ExportDirectoryUriKey]
+      ?.takeIf { it.isNotBlank() }
+      ?: return
+
+    runCatching {
+      val targetDirectory =
+        DocumentFile.fromTreeUri(context, Uri.parse(targetUriString))
+          ?: error("Export directory is unavailable")
+
+      val fileName = buildPermanentFileName(download.request.id)
+      if (targetDirectory.findFile(fileName) != null) return@runCatching
+
+      val destination =
+        targetDirectory.createFile("audio/webm", fileName)
+          ?: error("Unable to create permanent download file")
+
+      val dataSource =
+        androidx.media3.datasource.cache.CacheDataSource.Factory()
+          .setCache(downloadCache)
+          .setUpstreamDataSourceFactory(
+            androidx.media3.datasource.DataSource.Factory {
+              ByteArrayDataSource(byteArrayOf())
+            }
+          )
+          .setFlags(
+            androidx.media3.datasource.cache.CacheDataSource.FLAG_BLOCK_ON_CACHE or
+              androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
+          )
+          .createDataSource()
+
+      val dataSpec =
+        DataSpec.Builder()
+          .setUri(download.request.uri)
+          .setKey(download.request.id)
+          .build()
+
+      dataSource.open(dataSpec)
+      try {
+        context.contentResolver.openOutputStream(destination.uri, "w")!!.use { output ->
+          val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+          while (true) {
+            val read = dataSource.read(buffer, 0, buffer.size)
+            if (read == -1) break
+            if (read > 0) output.write(buffer, 0, read)
+          }
+          output.flush()
+        }
+      } finally {
+        dataSource.close()
+      }
+    }.onFailure { error ->
+      timber.log.Timber.e(error, "Permanent export failed for ${download.request.id}")
+    }
+  }
+
+  private fun buildPermanentFileName(songId: String): String {
+    val song = runBlocking(Dispatchers.IO) { database.getSongByIdBlocking(songId)?.song }
+    val title = song?.title?.takeIf { it.isNotBlank() } ?: songId
+    val safeTitle =
+      title.replace(Regex("[\\/:*?\"<>|]"), "_").trim().ifBlank { songId }
+    return "$safeTitle.webm"
   }
 
   fun getDownload(songId: String): Flow<Download?> = downloads.map { it[songId] }
