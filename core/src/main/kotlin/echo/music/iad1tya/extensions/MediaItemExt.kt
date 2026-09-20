@@ -10,6 +10,7 @@ import echo.music.iad1tya.db.entities.Song
 import echo.music.iad1tya.models.MediaMetadata
 import echo.music.iad1tya.models.toMediaMetadata
 import echo.music.iad1tya.ui.utils.resize
+import echo.music.iad1tya.utils.PermanentDownloadRegistry
 import java.util.Locale
 
 val MediaItem.metadata: MediaMetadata?
@@ -30,7 +31,7 @@ private fun playbackSeedUri(mediaId: String): String {
 fun Song.toMediaItem() =
   MediaItem.Builder()
     .setMediaId(song.id)
-    .setUri(playbackSeedUri(song.id))
+    .setUri(PermanentDownloadRegistry.get(song.id)?.toUri() ?: playbackSeedUri(song.id))
     .setCustomCacheKey(song.id)
     .setTag(toMediaMetadata())
     .setMediaMetadata(
