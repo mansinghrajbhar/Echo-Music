@@ -26,6 +26,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import echo.music.iad1tya.constants.AudioQuality
 import echo.music.iad1tya.constants.DownloadOnWifiOnlyKey
 import echo.music.iad1tya.constants.ExportDirectoryUriKey
+import echo.music.iad1tya.constants.PermanentDownloadUrisKey
 import echo.music.iad1tya.constants.IpVersionKey
 import echo.music.iad1tya.db.MusicDatabase
 import echo.music.iad1tya.db.entities.FormatEntity
@@ -33,6 +34,7 @@ import echo.music.iad1tya.db.entities.SongEntity
 import echo.music.iad1tya.di.DownloadCache
 import echo.music.iad1tya.di.PlayerCache
 import echo.music.iad1tya.ui.utils.resize
+import echo.music.iad1tya.utils.PermanentDownloadRegistry
 import echo.music.iad1tya.utils.YTPlayerUtils
 import echo.music.iad1tya.utils.dataStore
 import echo.music.iad1tya.utils.enumPreference
@@ -302,10 +304,7 @@ constructor(
               ByteArrayDataSource(byteArrayOf())
             }
           )
-          .setFlags(
-            androidx.media3.datasource.cache.CacheDataSource.FLAG_BLOCK_ON_CACHE or
-              androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
-          )
+          .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_BLOCK_ON_CACHE)
           .createDataSource()
 
       val dataSpec =
@@ -318,13 +317,29 @@ constructor(
       try {
         context.contentResolver.openOutputStream(destination.uri, "w")!!.use { output ->
           val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+          var copiedBytes = 0L
           while (true) {
             val read = dataSource.read(buffer, 0, buffer.size)
             if (read == -1) break
-            if (read > 0) output.write(buffer, 0, read)
+            if (read > 0) {
+              output.write(buffer, 0, read)
+              copiedBytes += read
+            }
           }
           output.flush()
+          if (copiedBytes <= 0L) error("Permanent download copy produced no audio bytes")
         }
+
+      val permanentUri = destination.uri.toString()
+      PermanentDownloadRegistry.register(download.request.id, permanentUri)
+      context.dataStore.edit { preferences ->
+        val current = preferences[PermanentDownloadUrisKey].orEmpty()
+        val updated = current
+          .filterNot { it.startsWith("${download.request.id}=") }
+          .toMutableSet()
+        updated += "${download.request.id}=$permanentUri"
+        preferences[PermanentDownloadUrisKey] = updated
+      }
       } finally {
         dataSource.close()
       }
