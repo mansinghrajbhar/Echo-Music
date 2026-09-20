@@ -694,7 +694,9 @@ class MainActivity : ComponentActivity() {
         val (useNewMiniPlayerDesign) =
           rememberPreference(UseNewMiniPlayerDesignKey, defaultValue = true)
         val defaultOpenTab = remember {
-          dataStore[DefaultOpenTabKey].toEnum(defaultValue = NavigationTab.HOME)
+          // Offline-first: open the user's Library by default unless they have
+          // explicitly selected another startup tab in settings.
+          dataStore[DefaultOpenTabKey].toEnum(defaultValue = NavigationTab.LIBRARY)
         }
         val tabOpenedFromShortcut = remember {
           when (intent?.action) {
@@ -1340,7 +1342,7 @@ class MainActivity : ComponentActivity() {
                     when (tabOpenedFromShortcut ?: defaultOpenTab) {
                       NavigationTab.HOME -> Screens.Home
                       NavigationTab.LIBRARY -> Screens.Library
-                      else -> Screens.Home
+                      else -> Screens.Library
                     }.route,
                   enterTransition = {
                     val currentRouteIndex =
