@@ -284,13 +284,13 @@ constructor(
       ?.takeIf { it.isNotBlank() }
       ?: return
 
-    runCatching {
+    try {
       val targetDirectory =
         DocumentFile.fromTreeUri(context, Uri.parse(targetUriString))
           ?: error("Export directory is unavailable")
 
       val fileName = buildPermanentFileName(download.request.id)
-      if (targetDirectory.findFile(fileName) != null) return@runCatching
+      if (targetDirectory.findFile(fileName) != null) return
 
       val destination =
         targetDirectory.createFile("audio/webm", fileName)
@@ -313,8 +313,8 @@ constructor(
           .setKey(download.request.id)
           .build()
 
-      dataSource.open(dataSpec)
       try {
+        dataSource.open(dataSpec)
         context.contentResolver.openOutputStream(destination.uri, "w")!!.use { output ->
           val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
           var copiedBytes = 0L
@@ -329,6 +329,9 @@ constructor(
           output.flush()
           if (copiedBytes <= 0L) error("Permanent download copy produced no audio bytes")
         }
+      } finally {
+        dataSource.close()
+      }
 
       val permanentUri = destination.uri.toString()
       PermanentDownloadRegistry.register(download.request.id, permanentUri)
@@ -340,13 +343,11 @@ constructor(
         updated += "${download.request.id}=$permanentUri"
         preferences[PermanentDownloadUrisKey] = updated
       }
-      } finally {
-        dataSource.close()
-      }
-    }.onFailure { error ->
+    } catch (error: Exception) {
       timber.log.Timber.e(error, "Permanent export failed for ${download.request.id}")
     }
   }
+
 
   private fun buildPermanentFileName(songId: String): String {
     val song = runBlocking(Dispatchers.IO) { database.getSongByIdBlocking(songId)?.song }
