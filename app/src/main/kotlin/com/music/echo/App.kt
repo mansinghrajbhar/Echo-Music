@@ -98,7 +98,7 @@ class App : Application(), SingletonImageLoader.Factory {
 
     // Restore permanent download locations before any player/library work starts.
     applicationScope.launch(Dispatchers.IO) {
-      runCatching {
+      try {
         dataStore.data.first()[PermanentDownloadUrisKey].orEmpty().forEach { entry ->
           val separator = entry.indexOf('=')
           if (separator > 0 && separator < entry.lastIndex) {
@@ -107,7 +107,9 @@ class App : Application(), SingletonImageLoader.Factory {
             PermanentDownloadRegistry.register(songId, uri)
           }
         }
-      }.onFailure { Timber.e(it, "Failed to restore permanent download locations") }
+      } catch (error: Exception) {
+        Timber.e(error, "Failed to restore permanent download locations")
+      }
     }
     echo.music.iad1tya.utils.cipher.CipherDeobfuscator.initialize(this)
     echo.music.iad1tya.utils.YTPlayerUtils.initialize()
