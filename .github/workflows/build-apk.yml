@@ -29,16 +29,21 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.0.12077973"
+
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
-      - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+      - name: Build universal FOSS debug APK
+        run: ./gradlew :app:assembleUniversalFossDebug --stacktrace --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: EchoMusic-offline-first-debug
-          path: app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/universalFoss/debug/*.apk
           if-no-files-found: error
           retention-days: 14
